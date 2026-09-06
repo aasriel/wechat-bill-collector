@@ -83,11 +83,17 @@
   }
 
   var RE_DT = /^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+  var RE_COMPACT_DT = /^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?$/;
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
   function parseDateTime(s) {
-    var m = RE_DT.exec((s || '').trim());
-    if (!m) return null;
+    var str = (s || '').trim();
+    var m = RE_DT.exec(str);
+    if (!m) {
+      // 紧凑格式：20260906 / 202609061230 / 20260906123015（银行流水常见），或「2026年9月6日」取数字
+      m = RE_COMPACT_DT.exec(str.replace(/\D/g, ''));
+      if (!m) return null;
+    }
     var y = +m[1], mo = +m[2], d = +m[3], h = +(m[4] || 0), mi = +(m[5] || 0), sec = +(m[6] || 0);
     var date = new Date(y, mo - 1, d, h, mi, sec);
     if (isNaN(date.getTime()) || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
@@ -104,6 +110,100 @@
     if (t === '收入') return { dir: 'income', label: '收入' };
     if (t === '支出') return { dir: 'expense', label: '支出' };
     return { dir: 'neutral', label: '中性' };
+  }
+
+  /* 银行流水方向文字：收/贷/转入=收入，支/借/转出=支出 */
+  function mapDirText(raw) {
+    var t = String(raw || '');
+    if (/收|贷|入账|转入/.test(t)) return 'income';
+    if (/支|借|出|转出/.test(t)) return 'expense';
+    return 'neutral';
+  }
+
+  function dirLabelOf(dir) {
+    return dir === 'income' ? '收入' : (dir === 'neutral' ? '中性' : '支出');
+  }
+
+  /* djb2：银行流水无单号时生成稳定去重 ID */
+  function strHash(s) {
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+    return h.toString(36);
+  }
+
+  /* 猜测表头所在行（0 基）：同时含 时间/日期 与 金额/发生额/余额 的前 30 行 */
+  function guessHeaderRow(rows) {
+    for (var i = 0; i < Math.min(rows.length, 30); i++) {
+      var row = rows[i] || [];
+      var hasTime = row.some(function (c) { return /时间|日期/.test(c || ''); });
+      var hasAmt = row.some(function (c) { return /金额|发生额|余额/.test(c || ''); });
+      if (hasTime && hasAmt) return i;
+    }
+    return 0;
+  }
+
+  /*
+   * 通用（银行等）账单解析：rows + 列映射 → 账单。
+   * m = { headerRow(0基), dirMode: 'col'|'plus-income'|'plus-expense'|'expense-all',
+   *       cols: { time, amount, amount2, dir, who, what, note, id }（列下标字符串，'' 表示未映射） }
+   * amount2 用于银行把 收入金额/支出金额 分成两列的情况（amount=支出列，amount2=收入列）。
+   */
+  function billsFromMappedRows(rowsIn, m) {
+    var rows = rowsIn.map(function (r) {
+      return Array.isArray(r) ? r.map(function (c) { return c == null ? '' : String(c); }) : [];
+    });
+    var cols = m.cols || {};
+    function colOf(key) {
+      var v = cols[key];
+      return (v === '' || v == null) ? null : +v;
+    }
+    var cTime = colOf('time'), cAmount = colOf('amount'), cAmount2 = colOf('amount2');
+    var cTime2 = colOf('time2');
+    if (cTime == null || isNaN(cTime)) throw new Error('请先选择“交易时间”对应的列');
+    if (cAmount == null || isNaN(cAmount)) throw new Error('请先选择“金额”对应的列');
+
+    var bills = [], skipped = [];
+    for (var r = m.headerRow + 1; r < rows.length; r++) {
+      var row = rows[r];
+      if (!row || row.every(function (c) { return !c; })) continue;
+      var timeRaw = row[cTime] + (cTime2 != null && !isNaN(cTime2) ? ' ' + row[cTime2] : '');
+      var dt = parseDateTime(timeRaw);
+      if (!dt) { skipped.push({ row: r + 1, reason: '时间无法解析：' + timeRaw }); continue; }
+
+      var amount, dir;
+      if (cAmount2 != null && !isNaN(cAmount2)) {
+        var outV = parseAmount(row[cAmount]);
+        var inV = parseAmount(row[cAmount2]);
+        if (outV == null && inV == null) { skipped.push({ row: r + 1, reason: '支出/收入金额都为空' }); continue; }
+        if (outV) { dir = 'expense'; amount = outV; } else { dir = 'income'; amount = inV; }
+      } else {
+        amount = parseAmount(row[cAmount]);
+        if (amount == null) { skipped.push({ row: r + 1, reason: '金额无法解析：' + row[cAmount] }); continue; }
+        if (m.dirMode === 'plus-income') dir = amount > 0 ? 'income' : 'expense';
+        else if (m.dirMode === 'plus-expense') dir = amount > 0 ? 'expense' : 'income';
+        else if (m.dirMode === 'expense-all') dir = 'expense';
+        else dir = mapDirText(cols.dir == null || cols.dir === '' ? '' : row[+cols.dir]);
+      }
+
+      function cell(key) {
+        var c = colOf(key);
+        return (c == null || isNaN(c)) ? '' : (row[c] || '');
+      }
+      var who = cell('who'), what = cell('what'), note = cell('note');
+      var idRaw = cell('id');
+      var txnId = idRaw ? String(idRaw).trim()
+        : ('bank-' + strHash([dt.datetime, Math.abs(amount).toFixed(2), who, what].join('|')));
+
+      bills.push({
+        txnId: txnId,
+        ts: dt.ts, dateStr: dt.dateStr, timeStr: dt.timeStr, datetime: dt.datetime,
+        kind: '银行流水', counterparty: who, product: what,
+        dir: dir, dirLabel: dirLabelOf(dir),
+        amount: Math.abs(amount), payMethod: '银行账户', status: '',
+        mchId: '', note: note, source: 'bank'
+      });
+    }
+    return { bills: bills, skipped: skipped, headerRow: m.headerRow + 1 };
   }
 
   /* 从「二维字符串数组」构建账单（CSV 与 XLSX 两条导入路径共用） */
@@ -233,6 +333,10 @@
     parseWeChatBillText: parseWeChatBillText,
     parseWeChatBill: parseWeChatBill,
     billsFromRows: billsFromRows,
+    billsFromMappedRows: billsFromMappedRows,
+    guessHeaderRow: guessHeaderRow,
+    mapDirText: mapDirText,
+    strHash: strHash,
     sumAmounts: sumAmounts,
     buildRemark: buildRemark,
     buildDetailMessage: buildDetailMessage,
