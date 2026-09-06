@@ -182,9 +182,9 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
 <main>
   <section class="card">
     <h2><span class="num">1</span>导入微信账单</h2>
-    <p class="hint">微信 → 我 → 服务 → 钱包 → 账单 → 右上角「常见问题」→ 下载账单（选「用于个人对账」）→ 邮箱收到带密码的 zip。<b>zip 直接导入即可，无需手动解压、无需 Excel</b>；也支持已解压的 CSV 与本工具的 .json 备份。</p>
-    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择 微信发来的 账单.zip（或 CSV / 备份 .json）</div>
-    <input type="file" id="fileInput" accept=".zip,.csv,.json,application/zip,text/csv,application/json" hidden>
+    <p class="hint">微信 → 我 → 服务 → 钱包 → 账单 → 右上角「常见问题」→ 下载账单（选「用于个人对账」）→ 邮箱收到带密码的 zip；或微信电脑版「设置 → 通用设置 → 账单与交易 → 导出账单」直接得到 Excel。<b>zip / Excel(.xlsx) / CSV 全部直接导入</b>（Excel 无需密码），无需手动解压；也支持本工具的 .json 备份。</p>
+    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择 账单.zip / Excel(.xlsx) / CSV / 备份.json</div>
+    <input type="file" id="fileInput" accept=".zip,.xlsx,.csv,.json,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" hidden>
     <div class="row" style="margin-top:8px">
       <input type="text" id="zipPwd" placeholder="zip 解压密码（微信「下载账单」页面会展示）" autocomplete="off" style="flex:1;min-width:200px">
       <label style="font-size:12.5px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:4px"><input type="checkbox" id="zipPwdRemember"> 记住密码</label>
@@ -383,11 +383,14 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     return { dir: 'neutral', label: '中性' };
   }
 
-  /* 解析账单文本。返回 { bills, skipped:[{row,reason}], headerRow } */
-  function parseWeChatBillText(text) {
-    var rows = parseCSV(text);
+  /* 从「二维字符串数组」构建账单（CSV 与 XLSX 两条导入路径共用） */
+  function billsFromRows(rowsIn) {
+    // 稀疏行补齐，避免 map/loc 遇到空洞
+    var rows = rowsIn.map(function (r) {
+      return Array.isArray(r) ? r.map(function (c) { return c == null ? '' : c; }) : [];
+    });
     var hi = locateHeader(rows);
-    if (hi < 0) throw new Error('未找到表头行（需要包含“交易时间”和“金额”）。请导入微信支付导出的账单明细 CSV。');
+    if (hi < 0) throw new Error('未找到表头行（需要包含“交易时间”和“金额”）。请导入微信支付导出的账单明细。');
     var header = rows[hi].map(function (s) { return (s || '').trim(); });
     var col = {};
     Object.keys(FIELD_ALIASES).forEach(function (key) {
@@ -423,6 +426,11 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
       });
     }
     return { bills: bills, skipped: skipped, headerRow: hi + 1 };
+  }
+
+  /* 解析账单 CSV 文本 */
+  function parseWeChatBillText(text) {
+    return billsFromRows(parseCSV(text));
   }
 
   function parseWeChatBill(buffer) {
@@ -505,6 +513,7 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     parseCSV: parseCSV,
     parseWeChatBillText: parseWeChatBillText,
     parseWeChatBill: parseWeChatBill,
+    billsFromRows: billsFromRows,
     sumAmounts: sumAmounts,
     buildRemark: buildRemark,
     buildDetailMessage: buildDetailMessage,
@@ -668,6 +677,191 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
   }
 
   return { readZip: readZip, crc32: crc32 };
+});
+</script>
+<script>/*
+ * 零依赖 XLSX 读取器（基于 ZipReader 解包 + 轻量 XML 提取）。
+ * 支持：sharedStrings / inlineStr / 数值 / Excel 串行日期（内置及自定义日期格式）。
+ * 输出：rows = 二维字符串数组（与 CSV 解析后的形态一致，日期已转为 YYYY-MM-DD HH:mm:ss）。
+ * 不支持：公式重算（直接取缓存值）、多表合并（只取第一个工作表）、加密 xlsx（极罕见）。
+ */
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) module.exports = factory(root.ZipReader || require('./unzip.js'));
+  else root.XlsxReader = factory(root.ZipReader);
+})(typeof self !== 'undefined' ? self : this, function (ZipReader) {
+  'use strict';
+
+  function decodeText(u8) { return new TextDecoder('utf-8').decode(u8); }
+
+  function xmlDecode(s) {
+    return String(s).replace(/&(amp|lt|gt|quot|apos|#x[0-9A-Fa-f]+|#\d+);/g, function (m, g) {
+      if (g === 'amp') return '&';
+      if (g === 'lt') return '<';
+      if (g === 'gt') return '>';
+      if (g === 'quot') return '"';
+      if (g === 'apos') return "'";
+      if (g.charAt(1) === 'x' || g.charAt(1) === 'X') return String.fromCharCode(parseInt(g.slice(1), 16));
+      return String.fromCharCode(parseInt(g.slice(1), 10));
+    });
+  }
+
+  function attr(tag, name) {
+    var m = new RegExp('(?:^|\\s)' + name + '="([^"]*)"').exec(tag);
+    return m ? xmlDecode(m[1]) : null;
+  }
+
+  function pad2(n) { return (n < 10 ? '0' : '') + n; }
+
+  /* Excel 串行日期（1900 体系）→ 'YYYY-MM-DD HH:mm:ss'（UTC 计算，避免时区漂移） */
+  function serialToString(n) {
+    var ms = Math.round((n - 25569) * 86400000);
+    var d = new Date(ms);
+    if (isNaN(d.getTime())) return String(n);
+    return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()) +
+      ' ' + pad2(d.getUTCHours()) + ':' + pad2(d.getUTCMinutes()) + ':' + pad2(d.getUTCSeconds());
+  }
+
+  var BUILTIN_DATE_FMT = (function () {
+    var s = {};
+    [14, 15, 16, 17, 18, 19, 20, 21, 22, 45, 46, 47].forEach(function (i) { s[i] = true; });
+    for (var i = 27; i <= 36; i++) s[i] = true;
+    for (var j = 50; j <= 58; j++) s[j] = true;
+    return s;
+  })();
+
+  function isDateFormat(numFmtId, customFmt) {
+    if (BUILTIN_DATE_FMT[numFmtId]) return true;
+    if (customFmt) {
+      var stripped = customFmt.replace(/\[[^\]]*\]|"[^"]*"|\\./g, '');
+      return /[dmyhs]/i.test(stripped);
+    }
+    return false;
+  }
+
+  function colIndex(ref) {
+    var m = /^[A-Za-z]+/.exec(ref || '');
+    if (!m) return null;
+    var s = m[0].toUpperCase(), n = 0;
+    for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64);
+    return n - 1;
+  }
+
+  /* ---------- XML 片段提取 ---------- */
+  function parseSharedStrings(xml) {
+    var out = [];
+    var re = /<si\b[^>]*>([\s\S]*?)<\/si>/g, m;
+    while ((m = re.exec(xml))) {
+      var text = '', tre = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g, tm;
+      while ((tm = tre.exec(m[1]))) text += xmlDecode(tm[1]);
+      out.push(text);
+    }
+    return out;
+  }
+
+  function parseStyleDates(xml) {
+    var custom = {};
+    var nre = /<numFmt\b([^>]*)\/?>/g, m;
+    while ((m = nre.exec(xml))) {
+      var id = parseInt(attr(m[1], 'numFmtId'), 10);
+      if (!isNaN(id)) custom[id] = attr(m[1], 'formatCode');
+    }
+    var flags = [];
+    var xfs = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml);
+    if (xfs) {
+      var xre = /<xf\b([^>]*)>/g, xm;
+      while ((xm = xre.exec(xfs[1]))) {
+        var fid = parseInt(attr(xm[1], 'numFmtId'), 10);
+        flags.push(isDateFormat(isNaN(fid) ? 0 : fid, custom[isNaN(fid) ? -1 : fid]));
+      }
+    }
+    return flags;
+  }
+
+  function firstSheetPath(workbookXml, relsXml) {
+    var sheetTag = /<sheet\b[^>]*>/.exec(workbookXml);
+    if (!sheetTag) throw new Error('xlsx 中没有工作表');
+    var rid = attr(sheetTag[0], 'r:id') || attr(sheetTag[0], 'id');
+    var re = /<Relationship\b[^>]*>/g, m;
+    while ((m = re.exec(relsXml))) {
+      if (attr(m[0], 'Id') === rid) {
+        var target = attr(m[0], 'Target');
+        if (!target) break;
+        target = target.replace(/^\//, '');
+        if (target.indexOf('xl/') === 0) return target;
+        return 'xl/' + target;
+      }
+    }
+    throw new Error('xlsx 工作表关系解析失败');
+  }
+
+  function parseSheetRows(xml, shared, styleDates) {
+    var rows = [];
+    var rowRe = /<row\b([^>]*)>([\s\S]*?)<\/row>/g, rm;
+    while ((rm = rowRe.exec(xml))) {
+      var rowTag = rm[1], inner = rm[2];
+      var rowNum = parseInt(attr(rowTag, 'r'), 10);
+      if (isNaN(rowNum)) rowNum = rows.length + 1;
+      while (rows.length < rowNum - 1) rows.push([]);
+      var cells = [];
+      var cellRe = /<c\b([^>]*?)>([\s\S]*?)<\/c>/g, cm;
+      var fallbackIdx = 0;
+      while ((cm = cellRe.exec(inner))) {
+        var cTag = cm[1], cInner = cm[2];
+        var idx = colIndex(attr(cTag, 'r'));
+        if (idx == null) { idx = fallbackIdx; }
+        fallbackIdx = idx + 1;
+        var t = attr(cTag, 't') || 'n';
+        var sIdx = parseInt(attr(cTag, 's'), 10);
+        var value;
+        if (t === 'inlineStr') {
+          value = '';
+          var tre = /<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g, tm;
+          while ((tm = tre.exec(cInner))) value += xmlDecode(tm[1]);
+        } else {
+          var vm = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(cInner);
+          var raw = vm ? xmlDecode(vm[1]) : '';
+          if (t === 's') value = shared[parseInt(raw, 10)] != null ? shared[parseInt(raw, 10)] : '';
+          else if (t === 'b') value = (raw === '1') ? 'TRUE' : 'FALSE';
+          else {
+            var isDate = !isNaN(sIdx) && styleDates[sIdx];
+            var num = parseFloat(raw);
+            if (isDate && raw !== '' && !isNaN(num)) value = serialToString(num);
+            else value = raw;
+          }
+        }
+        cells[idx] = value;
+      }
+      rows[rowNum - 1] = cells;
+    }
+    return rows;
+  }
+
+  /* zipEntries 来自 ZipReader.readZip() 的 { name, data } 列表 */
+  function readXlsxEntries(zipEntries) {
+    var byName = {};
+    zipEntries.forEach(function (e) { byName[e.name.replace(/^\//, '')] = e.data; });
+    var wbData = byName['xl/workbook.xml'];
+    if (!wbData) throw new Error('不是有效的 xlsx 文件（缺少 xl/workbook.xml）');
+    var relsData = byName['xl/_rels/workbook.xml.rels'];
+    var sharedXml = byName['xl/sharedStrings.xml'] ? decodeText(byName['xl/sharedStrings.xml']) : '';
+    var stylesXml = byName['xl/styles.xml'] ? decodeText(byName['xl/styles.xml']) : '';
+
+    var shared = parseSharedStrings(sharedXml);
+    var styleDates = parseStyleDates(stylesXml);
+    var sheetPath = firstSheetPath(decodeText(wbData), relsData ? decodeText(relsData) : '');
+    var sheetData = byName[sheetPath];
+    if (!sheetData) throw new Error('xlsx 中找不到工作表：' + sheetPath);
+    var rows = parseSheetRows(decodeText(sheetData), shared, styleDates);
+    return { rows: rows, sheet: sheetPath };
+  }
+
+  function readXlsx(buffer, password) {
+    return ZipReader.readZip(buffer, password).then(function (zip) {
+      return readXlsxEntries(zip.entries);
+    });
+  }
+
+  return { readXlsx: readXlsx, readXlsxEntries: readXlsxEntries, serialToString: serialToString, xmlDecode: xmlDecode };
 });
 </script>
 <script>/* 账单拼收款 —— 页面逻辑。
@@ -888,19 +1082,23 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     return importCsvBytes(u8, fileName);
   }
 
-  function importCsvBytes(bytes, fileName) {
-    var out;
-    try { out = C.parseWeChatBill(bytes); }
-    catch (e) { failImport(e && e.message ? e.message : 'CSV 解析失败'); return Promise.resolve(); }
+  function importParsed(out, label, encoding) {
     return addBills(out.bills).then(function (res) {
       var extra = out.skipped.length
         ? '<span class="warn">，另有 ' + out.skipped.length + ' 行无法解析</span>'
         : '';
       $('importResult').innerHTML =
-        '<span class="ok">✓ 从 ' + esc(fileName || 'CSV') + ' 导入：新增 ' + res.added + ' 笔，跳过重复 ' + res.dup + ' 笔</span>' +
-        '（编码：' + esc(out.encoding || '?') + '）' + extra;
+        '<span class="ok">✓ 从 ' + esc(label) + ' 导入：新增 ' + res.added + ' 笔，跳过重复 ' + res.dup + ' 笔</span>' +
+        (encoding ? '（' + esc(encoding) + '）' : '') + extra;
       toast(res.added > 0 ? '已导入 ' + res.added + ' 笔账单' : '账单均与已有记录重复');
     });
+  }
+
+  function importCsvBytes(bytes, fileName) {
+    var out;
+    try { out = C.parseWeChatBill(bytes); }
+    catch (e) { failImport(e && e.message ? e.message : 'CSV 解析失败'); return Promise.resolve(); }
+    return importParsed(out, fileName, out.encoding);
   }
 
   /* 微信发来的 zip：浏览器内直接解压（ZipCrypto），无需手动解压 */
@@ -913,8 +1111,17 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
   function handleZip(u8, fileName) {
     var pwd = getZipPassword();
     return ZipReader.readZip(u8, pwd || undefined).then(function (zip) {
+      // xlsx 本质上也是 zip 包，先按内容识别
+      var isXlsx = zip.entries.some(function (e) { return /^xl\/workbook\.xml$/i.test(e.name); });
+      if (isXlsx) {
+        try {
+          if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd);
+        } catch (e) { /* 忽略 */ }
+        var out = C.billsFromRows(XlsxReader.readXlsxEntries(zip.entries).rows);
+        return importParsed(out, fileName + '（Excel）', 'xlsx');
+      }
       var csvs = zip.entries.filter(function (e) { return /\.csv$/i.test(e.name) && e.data && e.data.length; });
-      if (!csvs.length) throw new Error('压缩包里没有找到 CSV 账单文件');
+      if (!csvs.length) throw new Error('压缩包里既没有微信账单 CSV，也不是有效的 xlsx');
       var pick = csvs.sort(function (a, b) { return b.data.length - a.data.length; })[0];
       try {
         if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd);
