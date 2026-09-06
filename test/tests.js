@@ -4,6 +4,7 @@
   var C = window.WxBillCore;
   var Z = window.ZipReader;
   var T = window.ZipTestUtils;
+  var X = window.XlsxReader;
   var out = [], pass = 0, fail = 0, skip = 0;
 
   function esc(s) { return String(s).replace(/[&<>]/g, function (m) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;' }[m]; }); }
@@ -207,6 +208,61 @@
     var e = null;
     try { await Z.readZip(new TextEncoder().encode('交易时间,金额\nx,y')); } catch (err) { e = err; }
     ok(e && e.code === 'not-zip', '应报 not-zip，实际 ' + (e && e.code));
+  });
+
+  /* ---- 异步用例：XLSX（微信电脑版导出的 Excel 形态） ---- */
+  function buildWeChatXlsx() {
+    var ss = ['交易时间', '交易类型', '交易对方', '商品', '收/支', '金额(元)', '支付方式', '当前状态', '交易单号',
+      '商户消费', '示例-老王家常菜', '晚市套餐,两荤一素', '支出', '零钱', '支付成功', '2026-09-05 19:10:22', '示例-便利蜂超市', '饮料零食',
+      '10001202609061230150001', '10001202609061305400002'];
+    var escXml = function (s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+    var sst = '<sst xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" count="' + ss.length + '">' +
+      ss.map(function (s) { return '<si><t>' + escXml(s) + '</t></si>'; }).join('') + '</sst>';
+    var styles = '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy-mm-dd hh:mm:ss"/></numFmts>' +
+      '<cellXfs count="2"><xf numFmtId="0" xfId="0"/><xf numFmtId="164" xfId="0" applyNumberFormat="1"/></cellXfs></styleSheet>';
+    var wb = '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" ' +
+      'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+      '<sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets></workbook>';
+    var rels = '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+      '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/></Relationships>';
+    var serial = Date.UTC(2026, 8, 6, 12, 30, 15) / 86400000 + 25569;
+    var c = function (ref, style, tIdx) { return '<c r="' + ref + '" t="s"><v>' + tIdx + '</v></c>'; };
+    var sheet = '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>' +
+      '<row r="1">' + c('A1', 0, 0) + c('B1', 0, 1) + c('C1', 0, 2) + c('D1', 0, 3) + c('E1', 0, 4) + c('F1', 0, 5) + c('G1', 0, 6) + c('H1', 0, 7) + c('I1', 0, 8) + '</row>' +
+      '<row r="2"><c r="A2" s="1"><v>' + serial + '</v></c>' + c('B2', 0, 9) + c('C2', 0, 10) + c('D2', 0, 11) + c('E2', 0, 12) + '<c r="F2"><v>128</v></c>' + c('G2', 0, 13) + c('H2', 0, 14) + c('I2', 0, 18) + '</row>' +
+      '<row r="3">' + c('A3', 0, 15) + c('B3', 0, 9) + c('C3', 0, 16) + c('D3', 0, 17) + c('E3', 0, 12) + '<c r="F3"><v>15.5</v></c>' + c('G3', 0, 13) + c('H3', 0, 14) + c('I3', 0, 19) + '</row>' +
+      '</sheetData></worksheet>';
+    return T.buildZip([
+      { name: 'xl/workbook.xml', data: new TextEncoder().encode(wb) },
+      { name: 'xl/_rels/workbook.xml.rels', data: new TextEncoder().encode(rels) },
+      { name: 'xl/styles.xml', data: new TextEncoder().encode(styles) },
+      { name: 'xl/sharedStrings.xml', data: new TextEncoder().encode(sst) },
+      { name: 'xl/worksheets/sheet1.xml', data: new TextEncoder().encode(sheet) }
+    ], {});
+  }
+
+  await at('xlsx：Excel 串行日期转换精确', function () {
+    var serial = Date.UTC(2026, 8, 6, 12, 30, 15) / 86400000 + 25569;
+    eq(X.serialToString(serial), '2026-09-06 12:30:15', '串行转日期');
+  });
+  await at('xlsx：整表解析（共享字符串/含逗号商品/串行+文本日期）', async function () {
+    var zipBytes = await buildWeChatXlsx();
+    var parsed2 = X.readXlsxEntries((await Z.readZip(zipBytes)).entries);
+    eq(parsed2.rows.length, 3, '行数（含表头）');
+    var bills = C.billsFromRows(parsed2.rows);
+    eq(bills.bills.length, 2, '账单数');
+    var b0 = bills.bills[0];
+    eq(b0.dateStr, '2026-09-06', '串行日期');
+    eq(b0.timeStr, '12:30', '时间');
+    eq(b0.counterparty, '示例-老王家常菜', '交易对方');
+    eq(b0.product, '晚市套餐,两荤一素', '商品（含逗号）');
+    eq(b0.amount, 128, '金额');
+    eq(b0.txnId, '10001202609061230150001', '交易单号');
+    var b1 = bills.bills[1];
+    eq(b1.dateStr, '2026-09-05', '文本日期');
+    eq(b1.timeStr, '19:10', '文本时间');
+    eq(b1.amount, 15.5, '金额');
   });
 
   /* ---- 汇总 ---- */
