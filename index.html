@@ -21,9 +21,9 @@
 <main>
   <section class="card">
     <h2><span class="num">1</span>导入微信账单</h2>
-    <p class="hint">微信 → 我 → 服务 → 钱包 → 账单 → 右上角「常见问题」→ 下载账单（选「用于个人对账」）→ 邮箱收到带密码的 zip；或微信电脑版「设置 → 通用设置 → 账单与交易 → 导出账单」直接得到 Excel。<b>zip / Excel(.xlsx) / CSV 全部直接导入</b>（Excel 无需密码），无需手动解压；也支持本工具的 .json 备份。</p>
-    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择 账单.zip / Excel(.xlsx) / CSV / 备份.json</div>
-    <input type="file" id="fileInput" accept=".zip,.xlsx,.csv,.json,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" hidden>
+    <p class="hint">微信账单（zip / Excel / CSV）直接导入；银行 App 导出的账单（如中国银行：明细导出 → Excel 加密包发邮箱）也直接选入——没有微信表头时会弹出「列映射」，选一次列对应关系并保存为模板，下次同一家银行自动套用。也支持本工具的 .json 备份。可一次多选多个文件。</p>
+    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择账单文件（zip / Excel / CSV / 银行导出 / 备份.json，可多选）</div>
+    <input type="file" id="fileInput" accept=".zip,.xlsx,.csv,.json,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" multiple hidden>
     <div class="row" style="margin-top:8px">
       <input type="text" id="zipPwd" placeholder="zip 解压密码（微信「下载账单」页面会展示）" autocomplete="off" style="flex:1;min-width:200px">
       <label style="font-size:12.5px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:4px"><input type="checkbox" id="zipPwdRemember"> 记住密码</label>
@@ -108,6 +108,57 @@
     <div class="pay-guide">
       微信未对第三方开放「发起群收款」接口，最后一步需手动完成（约10秒）：<br>
       群聊 → ＋ → 群收款 → 「按人均摊」填入上面的总金额与人数 → 把「收款备注」粘贴进「收款说明」→ 发送。明细较长时可另发「群明细」消息。
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="mapperOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mapperTitle">
+    <div class="head-row">
+      <h3 id="mapperTitle">银行 / 其他账单 · 列映射导入</h3>
+      <button class="close" id="btnCloseMapper" type="button" aria-label="关闭">✕</button>
+    </div>
+    <p class="hint">文件里没有微信账单表头（比如是银行 App 导出的账单）。选择各列的对应关系即可导入；勾选「保存为模板」后，下次同一家银行的账单会自动套用映射。</p>
+    <div class="grid2">
+      <label for="mapperTpl">已保存模板</label>
+      <select id="mapperTpl"><option value="">不使用（手动映射）</option></select>
+      <label for="mapperHeaderRow">表头所在行</label>
+      <input type="number" id="mapperHeaderRow" min="1" value="1" inputmode="numeric">
+      <label for="colTime">交易时间（必选）</label>
+      <select id="colTime"></select>
+      <label for="colTime2">时间第二列（可选）</label>
+      <select id="colTime2"></select>
+      <label for="colAmount">金额（必选）</label>
+      <select id="colAmount"></select>
+      <label for="colAmount2">第二金额列（可选）</label>
+      <select id="colAmount2"></select>
+      <label for="colDir">方向列（可选）</label>
+      <select id="colDir"></select>
+      <label for="dirMode">方向判定</label>
+      <select id="dirMode">
+        <option value="col">按方向列文字（收/贷=收入，支/借=支出）</option>
+        <option value="plus-income">按金额正负（正数=收入）</option>
+        <option value="plus-expense">按金额正负（正数=支出）</option>
+        <option value="expense-all">全部算作支出</option>
+      </select>
+      <label for="colWho">对方 / 摘要（可选）</label>
+      <select id="colWho"></select>
+      <label for="colWhat">商品 / 用途（可选）</label>
+      <select id="colWhat"></select>
+      <label for="colNote">备注列（可选）</label>
+      <select id="colNote"></select>
+      <label for="colId">单号列（可选，去重用）</label>
+      <select id="colId"></select>
+    </div>
+    <p class="ph-help">银行把收入/支出金额分成两列时：金额列选「支出金额」，第二金额列选「收入金额」（此时自动按列判定方向）。</p>
+    <div class="preview" id="mapperPreview">选择列后这里会显示解析预览。</div>
+    <div class="row" style="margin-top:10px">
+      <label style="font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="mapperSaveTpl" checked> 保存为模板</label>
+      <input type="text" id="mapperTplName" placeholder="模板名，如：中国银行储蓄卡" style="flex:1;min-width:160px">
+    </div>
+    <div class="actions">
+      <button class="primary" id="btnMapperImport" type="button">导入</button>
+      <button id="btnMapperCancel" type="button">取消</button>
     </div>
   </div>
 </div>
