@@ -218,15 +218,11 @@
   /* 群里发布的完整明细消息（多行、带标题与合计） */
   function buildDetailMessage(bills, opts) {
     if (!bills || !bills.length) return '';
-    opts = opts || {};
     var list = bills.slice().sort(function (a, b) { return a.ts - b.ts; });
     var n = list.length;
     var total = sumAmounts(list);
-    var people = Math.max(1, parseInt(opts.people, 10) || 1);
-    var per = toYuan(Math.round(toFen(total) / people));
     var head = '【收款明细】' + list[0].dateStr + (n > 1 ? ' ~ ' + last(list).dateStr : '');
-    return head + '\n' + list.map(detailLine).join('\n') +
-      '\n合计 ¥' + total.toFixed(2) + '（' + n + '笔）· 人均 ¥' + per.toFixed(2) + '（' + people + '人）';
+    return head + '\n' + list.map(detailLine).join('\n') + '\n合计 ¥' + total.toFixed(2) + '（' + n + '笔）';
 
     function last(a) { return a[a.length - 1]; }
   }
