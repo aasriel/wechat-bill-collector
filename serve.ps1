@@ -31,6 +31,8 @@ while ($listener.IsListening) {
       $ext = [System.IO.Path]::GetExtension($file).ToLowerInvariant()
       if ($types.ContainsKey($ext)) { $ctx.Response.ContentType = $types[$ext] } else { $ctx.Response.ContentType = 'application/octet-stream' }
       $ctx.Response.ContentLength64 = $bytes.Length
+      # no-cache: always serve the freshest files (GitHub Pages has its own caching policy)
+      $ctx.Response.Headers[[System.Net.HttpResponseHeader]::CacheControl] = 'no-store'
       $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
     } else {
       $ctx.Response.StatusCode = 404
