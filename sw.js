@@ -1,7 +1,7 @@
 /* Service Worker：缓存应用外壳，支持离线使用（仅在 https / localhost 下生效） */
-var CACHE = 'wxbc-v3';
+var CACHE = 'wxbc-v4';
 var ASSETS = [
-  './', './index.html', './styles.css', './app.js', './parser.js', './unzip.js',
+  './', './index.html', './styles.css', './app.js', './parser.js', './unzip.js', './xlsx.js',
   './manifest.webmanifest', './icon.svg'
 ];
 
