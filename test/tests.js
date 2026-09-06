@@ -111,11 +111,12 @@
     ok(r.indexOf('09-05至09-06') === 0, '跨天日期范围（按时间升序）');
     ok(r.indexOf(' ＋ ') >= 0, '单行明细连接符');
   });
-  t('buildDetailMessage：群明细带标题与合计', function () {
+  t('buildDetailMessage：群明细带标题与合计（不含人均）', function () {
     var sel = [byTxn(parsed.bills, '0001'), byTxn(parsed.bills, '0002')];
     var m = C.buildDetailMessage(sel, { people: 2 });
     ok(m.indexOf('【收款明细】2026-09-06') === 0, '标题');
-    ok(m.indexOf('合计 ¥143.50（2笔）· 人均 ¥71.75（2人）') >= 0, '合计行');
+    ok(m.indexOf('合计 ¥143.50（2笔）') >= 0, '合计行');
+    eq(m.indexOf('人均'), -1, '明细消息不应含人均');
   });
   t('GBK 解码：微信真实导出的编码', function () {
     var bytes = new Uint8Array([206, 162, 208, 197, 214, 167, 184, 182, 213, 203, 181, 165, 195, 247, 207, 184]);
