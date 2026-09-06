@@ -266,6 +266,72 @@
     eq(b1.amount, 15.5, '金额');
   });
 
+  /* ---- 同步用例：银行账单列映射解析 ---- */
+  t('银行列映射：双金额列 + 双时间列 + 紧凑日期 + 稳定去重ID', function () {
+    var rows = [
+      ['中国银行交易流水（示例）'],
+      ['储蓄卡账户 6217****1234'],
+      ['账户', '交易日期', '交易时间', '摘要', '支出金额', '收入金额', '余额'],
+      ['储蓄卡', '20260906', '123015', '转出-餐饮', '128.00', '', '5000.00'],
+      ['储蓄卡', '20260906', '130504', '工资入账', '', '8000.00', '13000.00'],
+      ['储蓄卡', '20260906', '130504', '工资入账', '', '8000.00', '21000.00']
+    ];
+    eq(C.guessHeaderRow(rows), 2, '猜表头应跳过标题行');
+    var m = {
+      headerRow: 2, dirMode: 'col',
+      cols: { time: '1', time2: '2', amount: '4', amount2: '5', dir: '', who: '3', what: '', note: '', id: '' }
+    };
+    var out = C.billsFromMappedRows(rows, m);
+    eq(out.bills.length, 3, '账单数');
+    var b0 = out.bills[0];
+    eq(b0.dateStr, '2026-09-06', '紧凑日期');
+    eq(b0.timeStr, '12:30', '时间第二列拼接');
+    eq(b0.dir, 'expense', '双金额列：支出');
+    eq(b0.amount, 128, '支出金额');
+    eq(b0.counterparty, '转出-餐饮', '摘要');
+    var b1 = out.bills[1];
+    eq(b1.dir, 'income', '双金额列：收入');
+    eq(b1.amount, 8000, '收入金额');
+    eq(b1.timeStr, '13:05', '时间');
+    ok(b1.txnId.indexOf('bank-') === 0, '无单号时生成稳定ID');
+    eq(out.bills[2].txnId, b1.txnId, '相同内容两行ID一致（可去重）');
+  });
+  t('银行列映射：三种方向判定模式', function () {
+    var rows = [
+      ['交易时间', '金额', '摘要'],
+      ['2026-09-06 12:00', '50', '超市'],
+      ['2026-09-06 13:00', '-30', '退款']
+    ];
+    var cols = { time: '0', amount: '1', amount2: '', dir: '', who: '2', what: '', note: '', id: '' };
+    // plus-income：正数=收入，负数=支出
+    var o1 = C.billsFromMappedRows(rows, { headerRow: 0, dirMode: 'plus-income', cols: cols });
+    eq(o1.bills[0].dir, 'income', 'plus-income：正数=收入');
+    eq(o1.bills[0].amount, 50, '金额取绝对值');
+    eq(o1.bills[1].dir, 'expense', 'plus-income：负数=支出');
+    eq(o1.bills[1].amount, 30, '金额取绝对值');
+    // plus-expense：正数=支出，负数=收入
+    var o2 = C.billsFromMappedRows(rows, { headerRow: 0, dirMode: 'plus-expense', cols: cols });
+    eq(o2.bills[0].dir, 'expense', 'plus-expense：正数=支出');
+    eq(o2.bills[1].dir, 'income', 'plus-expense：负数=收入');
+    // expense-all：全部算支出
+    var o3 = C.billsFromMappedRows(rows, { headerRow: 0, dirMode: 'expense-all', cols: cols });
+    o3.bills.forEach(function (b) { eq(b.dir, 'expense', '全部算支出'); });
+  });
+  t('银行列映射：方向列文字识别（收/贷/借/支）与单列紧凑日期', function () {
+    var rows = [
+      ['交易时间', '借贷标志', '金额', '对方'],
+      ['20260906123015', '贷', '100', '张三'],
+      ['20260906133015', '借', '40', '李四']
+    ];
+    var out = C.billsFromMappedRows(rows, {
+      headerRow: 0, dirMode: 'col',
+      cols: { time: '0', time2: '', amount: '2', amount2: '', dir: '1', who: '3', what: '', note: '', id: '' }
+    });
+    eq(out.bills[0].dir, 'income', '贷=收入');
+    eq(out.bills[0].timeStr, '12:30', '14位紧凑日期含时间');
+    eq(out.bills[1].dir, 'expense', '借=支出');
+  });
+
   /* ---- 汇总 ---- */
   var total = pass + fail + skip;
   document.getElementById('summary').textContent =
