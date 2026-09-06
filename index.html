@@ -36,6 +36,14 @@
 
   <section class="card">
     <h2><span class="num">2</span>勾选要收款的消费 <span id="billCount" style="color:var(--muted);font-size:13px;font-weight:normal"></span></h2>
+    <div class="row" style="margin:4px 0 8px;justify-content:space-between">
+      <div class="seg" id="srcSeg" role="group" aria-label="账单来源">
+        <button type="button" data-src="real" class="on" aria-pressed="true">真实账单</button>
+        <button type="button" data-src="demo" aria-pressed="false">示例账单</button>
+        <button type="button" data-src="all" aria-pressed="false">全部</button>
+      </div>
+      <button class="link" id="btnClearDemo" type="button" hidden>清空示例账单</button>
+    </div>
     <div class="filters">
       <input type="text" id="q" class="q" placeholder="搜索：商户 / 商品 / 类型 / 备注">
       <input type="date" id="from" title="开始日期" aria-label="开始日期">
