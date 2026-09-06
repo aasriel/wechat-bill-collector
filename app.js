@@ -19,7 +19,7 @@
   var state = {
     bills: [],          // 全部账单，时间倒序
     selected: {},       // txnId -> true
-    filters: { q: '', from: '', to: '', dir: 'all' }
+    filters: { q: '', from: '', to: '', dir: 'all', source: 'real' }
   };
 
   function openDB() {
@@ -69,6 +69,20 @@
       return new Promise(function (resolve, reject) {
         var t = db.transaction(STORE, 'readwrite');
         t.objectStore(STORE).clear();
+        t.oncomplete = function () { resolve(); };
+        t.onerror = function () { reject(t.error); };
+      });
+    });
+  }
+
+  function idbDeleteMany(ids) {
+    if (!ids.length) return Promise.resolve();
+    return openDB().then(function (db) {
+      if (!db) { ids.forEach(function (id) { delete memory[id]; }); return; }
+      return new Promise(function (resolve, reject) {
+        var t = db.transaction(STORE, 'readwrite');
+        var s = t.objectStore(STORE);
+        ids.forEach(function (id) { s.delete(id); });
         t.oncomplete = function () { resolve(); };
         t.onerror = function () { reject(t.error); };
       });
@@ -142,6 +156,9 @@
     var f = state.filters;
     var q = f.q.trim().toLowerCase();
     return state.bills.filter(function (b) {
+      // 来源开关：真实账单（默认）/ 示例账单 / 全部
+      if (f.source === 'real' && b.source === 'demo') return false;
+      if (f.source === 'demo' && b.source !== 'demo') return false;
       if (f.dir !== 'all' && b.dir !== f.dir) return false;
       if (f.from && b.dateStr < f.from) return false;
       if (f.to && b.dateStr > f.to) return false;
@@ -158,9 +175,14 @@
     var box = $('billList');
     $('billCount').textContent = '（共 ' + state.bills.length + ' 笔 · 筛选出 ' + list.length + ' 笔）';
     if (!list.length) {
-      box.innerHTML = '<div class="empty">' +
-        (state.bills.length ? '没有符合筛选条件的账单' : '还没有账单：先导入微信账单 CSV，或点上方「载入示例账单」试用') +
-        '</div>';
+      var demoExists = state.bills.some(function (b) { return b.source === 'demo'; });
+      var realExists = state.bills.some(function (b) { return b.source !== 'demo'; });
+      var msg;
+      if (!state.bills.length) msg = '还没有账单：先导入微信账单 CSV，或点上方「载入示例账单」试用';
+      else if (state.filters.source === 'real' && demoExists && !realExists) msg = '真实账单为空——点上方「示例账单」可查看演示数据';
+      else if (state.filters.source === 'demo' && !demoExists) msg = '没有示例账单（点上方「载入示例账单」可添加）';
+      else msg = '没有符合筛选条件的账单';
+      box.innerHTML = '<div class="empty">' + msg + '</div>';
       return;
     }
     var html = [];
@@ -170,10 +192,11 @@
       var sub = [b.product, b.kind, b.payMethod, b.status].filter(function (x) { return x && x !== '/'; }).join(' · ');
       var amtCls = b.dir === 'income' ? 'income' : (b.dir === 'neutral' ? 'neutral' : 'expense');
       var amtSign = b.dir === 'income' ? '+' : (b.dir === 'neutral' ? '' : '-');
+      var tag = b.source === 'demo' ? '<span class="b-tag">示例</span>' : '';
       html.push(
         '<label class="bill" data-id="' + esc(b.txnId) + '">' +
         '<input type="checkbox" ' + (state.selected[b.txnId] ? 'checked' : '') + ' aria-label="选择该笔">' +
-        '<span class="b-main"><span class="b-src">' + esc(src) + '</span>' +
+        '<span class="b-main"><span class="b-src">' + tag + esc(src) + '</span>' +
         '<span class="b-sub">' + esc(sub) + '</span></span>' +
         '<span class="b-side"><span class="b-amt ' + amtCls + '">' + amtSign + b.amount.toFixed(2) + '</span>' +
         '<span class="b-when">' + esc(b.dateStr.slice(5)) + ' ' + esc(b.timeStr) + '</span></span>' +
@@ -197,7 +220,11 @@
       : '⚠️ 当前环境（如 file:// 部分浏览器）不支持持久化，数据仅本次打开有效。建议通过 http://localhost 或 https 访问。';
   }
 
-  function renderAll() { renderList(); updateSelBar(); }
+  function updateClearDemoBtn() {
+    $('btnClearDemo').hidden = !state.bills.some(function (b) { return b.source === 'demo'; });
+  }
+
+  function renderAll() { renderList(); updateSelBar(); updateClearDemoBtn(); }
 
   /* ---------------- 导入 ---------------- */
   function handleFile(file) {
@@ -544,6 +571,36 @@
         $('importResult').innerHTML = '<span class="ok">✓ 已载入示例账单 ' + res.added + ' 笔（都是假数据，可随时清空）</span>';
         toast('示例账单已载入');
       });
+    });
+
+    // 来源开关（真实/示例/全部）
+    $('srcSeg').addEventListener('click', function (e) {
+      var btn = e.target.closest('button[data-src]');
+      if (!btn) return;
+      state.filters.source = btn.dataset.src;
+      Array.prototype.forEach.call($('srcSeg').children, function (b) {
+        var on = b === btn;
+        b.classList.toggle('on', on);
+        b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      });
+      // 已选账单若不属于当前来源，自动移出选择，保持底部合计一致
+      var visible = {};
+      filteredBills().forEach(function (b) { visible[b.txnId] = true; });
+      var pruned = 0;
+      Object.keys(state.selected).forEach(function (id) {
+        if (!visible[id]) { delete state.selected[id]; pruned++; }
+      });
+      renderAll();
+      if (pruned) toast('已从选择中移除 ' + pruned + ' 笔（不属于当前来源）');
+    });
+    $('btnClearDemo').addEventListener('click', function () {
+      var demoIds = state.bills.filter(function (b) { return b.source === 'demo'; }).map(function (b) { return b.txnId; });
+      if (!demoIds.length) return;
+      if (!confirm('确定删除全部 ' + demoIds.length + ' 笔示例账单？真实账单不受影响。')) return;
+      var removed = {};
+      demoIds.forEach(function (id) { removed[id] = true; delete state.selected[id]; });
+      state.bills = state.bills.filter(function (b) { return !removed[b.txnId]; });
+      idbDeleteMany(demoIds).then(function () { renderAll(); toast('示例账单已删除'); });
     });
 
     // 筛选
