@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>微信账单拼收款</title>
+<meta name="description" content="导入微信账单，多选消费，自动生成群收款总金额与备注（含日期、时间、消费来源、金额明细）。纯本地运行，数据不上传。">
+<meta name="theme-color" content="#07c160">
+<!-- 安全加固：禁止一切对外连接（connect-src 'none'）、只允许本目录脚本/样式，页面被篡改也无法外发数据 -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; manifest-src 'self'; connect-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="app">
+  <h1>微信账单拼收款</h1><span class="ver">v1.0 本地版</span>
+  <span class="priv">数据仅存本机 · 不联网</span>
+</header>
+<main>
+  <section class="card">
+    <h2><span class="num">1</span>导入微信账单</h2>
+    <p class="hint">微信 → 我 → 服务 → 钱包 → 账单 → 右上角「常见问题」→ 下载账单（选「用于个人对账」）→ 邮箱收到带密码的 zip。<b>zip 直接导入即可，无需手动解压、无需 Excel</b>；也支持已解压的 CSV 与本工具的 .json 备份。</p>
+    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择 微信发来的 账单.zip（或 CSV / 备份 .json）</div>
+    <input type="file" id="fileInput" accept=".zip,.csv,.json,application/zip,text/csv,application/json" hidden>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="zipPwd" placeholder="zip 解压密码（微信「下载账单」页面会展示）" autocomplete="off" style="flex:1;min-width:200px">
+      <label style="font-size:12.5px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:4px"><input type="checkbox" id="zipPwdRemember"> 记住密码</label>
+    </div>
+    <div class="import-result" id="importResult"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="btnDemo" type="button">载入示例账单（先试试）</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">2</span>勾选要收款的消费 <span id="billCount" style="color:var(--muted);font-size:13px;font-weight:normal"></span></h2>
+    <div class="filters">
+      <input type="text" id="q" class="q" placeholder="搜索：商户 / 商品 / 类型 / 备注">
+      <input type="date" id="from" title="开始日期" aria-label="开始日期">
+      <input type="date" id="to" title="结束日期" aria-label="结束日期">
+      <div class="row" style="justify-content:space-between">
+        <div class="seg" id="dirSeg" role="group" aria-label="收支类型">
+          <button type="button" data-dir="all" class="on" aria-pressed="true">全部</button>
+          <button type="button" data-dir="expense" aria-pressed="false">支出</button>
+          <button type="button" data-dir="income" aria-pressed="false">收入</button>
+          <button type="button" data-dir="neutral" aria-pressed="false">中性</button>
+        </div>
+        <button class="link" id="btnResetFilter" type="button">重置筛选</button>
+      </div>
+    </div>
+    <div class="bill-list" id="billList"></div>
+    <div class="list-foot">
+      <button id="btnSelectFiltered" type="button">全选筛选结果</button>
+      <button id="btnInvertSel" type="button">反选</button>
+      <button id="btnClearSel" type="button">清空已选</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2><span class="num">3</span>数据管理</h2>
+    <p class="hint">所有账单仅保存在本机浏览器（IndexedDB），不上传任何服务器；代码全部本地可审计。换设备前请先导出备份。</p>
+    <div class="danger-zone">
+      <button id="btnExport" type="button">导出备份 (.json)</button>
+      <button id="btnClear" type="button" class="danger">清空全部数据</button>
+    </div>
+    <div class="storage-note" id="storageNote"></div>
+  </section>
+</main>
+
+<div class="selbar">
+  <div class="selbar-inner">
+    <div class="stat">已选 <b id="selCount">0</b> 笔 · 合计 <b class="total" id="selTotal">¥0.00</b></div>
+    <button class="primary" id="btnMake" type="button" disabled>生成群收款 →</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mkTitle">
+    <div class="head-row">
+      <h3 id="mkTitle">发起群收款</h3>
+      <button class="close" id="btnCloseModal" type="button" aria-label="关闭">✕</button>
+    </div>
+    <div class="selected-list" id="mkList"></div>
+    <div class="grid2">
+      <label>收款方式</label>
+      <div style="font-size:13px">按人均摊（对应微信「群收款 · 按人均摊」：总金额 ÷ 人数）</div>
+      <label for="mkPeople">参与人数</label>
+      <input type="number" id="mkPeople" min="1" max="999" value="2" inputmode="numeric">
+      <label for="mkTpl">备注模板</label>
+      <select id="mkTpl">
+        <option value="detail">详细（每笔日期/时间/来源/金额）</option>
+        <option value="oneline">简洁（一行汇总）</option>
+        <option value="custom">自定义…</option>
+      </select>
+      <label for="mkTplText">模板内容</label>
+      <textarea id="mkTplText"></textarea>
+    </div>
+    <p class="ph-help">可用占位符：{日期} {时间段} {笔数} {合计} {人均} {人数} {来源} {明细}（多行，每笔含日期·时间·来源·金额） {明细单行}（＋连接）</p>
+    <div class="preview" id="mkPreview"></div>
+    <div class="actions">
+      <button class="primary" id="btnCopyRemark" type="button">复制收款备注</button>
+      <button id="btnCopyDetail" type="button">复制群明细</button>
+      <button id="btnCopyTotal" type="button">复制总金额</button>
+      <button id="btnCopyAll" type="button">复制金额＋备注</button>
+    </div>
+    <div class="pay-guide">
+      微信未对第三方开放「发起群收款」接口，最后一步需手动完成（约10秒）：<br>
+      群聊 → ＋ → 群收款 → 「按人均摊」填入上面的总金额与人数 → 把「收款备注」粘贴进「收款说明」→ 发送。明细较长时可另发「群明细」消息。
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status"></div>
+<noscript>本工具需要启用 JavaScript 才能使用。</noscript>
+<script src="parser.js"></script>
+<script src="unzip.js"></script>
+<script src="app.js" defer></script>
+</body>
+</html>
