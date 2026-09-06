@@ -319,8 +319,11 @@
   }
 
   /* ---------------- 群收款弹层 ---------------- */
-  var TPL_DETAIL = '{日期} {笔数}笔消费 合计¥{合计}\n{明细}\n人均¥{人均}（{人数}人AA）';
-  var TPL_ONELINE = '{日期} {笔数}笔消费 合计¥{合计}（人均¥{人均}，{人数}人）';
+  var TPL_DETAIL = '{日期} {笔数}笔消费 合计¥{合计}\n{明细}';
+  var TPL_ONELINE = '{日期} {笔数}笔消费 合计¥{合计}';
+  // 旧版默认模板（含人均），用于把老用户记住的模板自动升级
+  var OLD_TPL_DETAIL = '{日期} {笔数}笔消费 合计¥{合计}\n{明细}\n人均¥{人均}（{人数}人AA）';
+  var OLD_TPL_ONELINE = '{日期} {笔数}笔消费 合计¥{合计}（人均¥{人均}，{人数}人）';
 
   function currentTplText() { return $('mkTplText').value; }
   function currentPeople() { return Math.max(1, parseInt($('mkPeople').value, 10) || 1); }
@@ -356,6 +359,9 @@
       savedSel = localStorage.getItem('wxbc_tpl_sel') || 'detail';
       savedPeople = parseInt(localStorage.getItem('wxbc_people'), 10) || 2;
     } catch (e) { /* 忽略 */ }
+    // 旧默认模板自动升级为去人均的新默认
+    if (savedTpl === OLD_TPL_DETAIL) { savedTpl = TPL_DETAIL; savedSel = 'detail'; }
+    if (savedTpl === OLD_TPL_ONELINE) { savedTpl = TPL_ONELINE; savedSel = 'oneline'; }
     $('mkTpl').value = savedTpl ? savedSel : 'detail';
     $('mkTplText').value = savedTpl || TPL_DETAIL;
     $('mkPeople').value = String(savedPeople);
