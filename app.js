@@ -216,19 +216,23 @@
     return importCsvBytes(u8, fileName);
   }
 
-  function importCsvBytes(bytes, fileName) {
-    var out;
-    try { out = C.parseWeChatBill(bytes); }
-    catch (e) { failImport(e && e.message ? e.message : 'CSV 解析失败'); return Promise.resolve(); }
+  function importParsed(out, label, encoding) {
     return addBills(out.bills).then(function (res) {
       var extra = out.skipped.length
         ? '<span class="warn">，另有 ' + out.skipped.length + ' 行无法解析</span>'
         : '';
       $('importResult').innerHTML =
-        '<span class="ok">✓ 从 ' + esc(fileName || 'CSV') + ' 导入：新增 ' + res.added + ' 笔，跳过重复 ' + res.dup + ' 笔</span>' +
-        '（编码：' + esc(out.encoding || '?') + '）' + extra;
+        '<span class="ok">✓ 从 ' + esc(label) + ' 导入：新增 ' + res.added + ' 笔，跳过重复 ' + res.dup + ' 笔</span>' +
+        (encoding ? '（' + esc(encoding) + '）' : '') + extra;
       toast(res.added > 0 ? '已导入 ' + res.added + ' 笔账单' : '账单均与已有记录重复');
     });
+  }
+
+  function importCsvBytes(bytes, fileName) {
+    var out;
+    try { out = C.parseWeChatBill(bytes); }
+    catch (e) { failImport(e && e.message ? e.message : 'CSV 解析失败'); return Promise.resolve(); }
+    return importParsed(out, fileName, out.encoding);
   }
 
   /* 微信发来的 zip：浏览器内直接解压（ZipCrypto），无需手动解压 */
@@ -241,8 +245,17 @@
   function handleZip(u8, fileName) {
     var pwd = getZipPassword();
     return ZipReader.readZip(u8, pwd || undefined).then(function (zip) {
+      // xlsx 本质上也是 zip 包，先按内容识别
+      var isXlsx = zip.entries.some(function (e) { return /^xl\/workbook\.xml$/i.test(e.name); });
+      if (isXlsx) {
+        try {
+          if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd);
+        } catch (e) { /* 忽略 */ }
+        var out = C.billsFromRows(XlsxReader.readXlsxEntries(zip.entries).rows);
+        return importParsed(out, fileName + '（Excel）', 'xlsx');
+      }
       var csvs = zip.entries.filter(function (e) { return /\.csv$/i.test(e.name) && e.data && e.data.length; });
-      if (!csvs.length) throw new Error('压缩包里没有找到 CSV 账单文件');
+      if (!csvs.length) throw new Error('压缩包里既没有微信账单 CSV，也不是有效的 xlsx');
       var pick = csvs.sort(function (a, b) { return b.data.length - a.data.length; })[0];
       try {
         if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd);
