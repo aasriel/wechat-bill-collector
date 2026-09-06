@@ -182,9 +182,9 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
 <main>
   <section class="card">
     <h2><span class="num">1</span>导入微信账单</h2>
-    <p class="hint">微信 → 我 → 服务 → 钱包 → 账单 → 右上角「常见问题」→ 下载账单（选「用于个人对账」）→ 邮箱收到带密码的 zip；或微信电脑版「设置 → 通用设置 → 账单与交易 → 导出账单」直接得到 Excel。<b>zip / Excel(.xlsx) / CSV 全部直接导入</b>（Excel 无需密码），无需手动解压；也支持本工具的 .json 备份。</p>
-    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择 账单.zip / Excel(.xlsx) / CSV / 备份.json</div>
-    <input type="file" id="fileInput" accept=".zip,.xlsx,.csv,.json,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" hidden>
+    <p class="hint">微信账单（zip / Excel / CSV）直接导入；银行 App 导出的账单（如中国银行：明细导出 → Excel 加密包发邮箱）也直接选入——没有微信表头时会弹出「列映射」，选一次列对应关系并保存为模板，下次同一家银行自动套用。也支持本工具的 .json 备份。可一次多选多个文件。</p>
+    <div class="drop" id="dropZone" role="button" tabindex="0" aria-label="选择或拖入账单文件">点击选择账单文件（zip / Excel / CSV / 银行导出 / 备份.json，可多选）</div>
+    <input type="file" id="fileInput" accept=".zip,.xlsx,.csv,.json,application/zip,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,text/csv,application/json" multiple hidden>
     <div class="row" style="margin-top:8px">
       <input type="text" id="zipPwd" placeholder="zip 解压密码（微信「下载账单」页面会展示）" autocomplete="off" style="flex:1;min-width:200px">
       <label style="font-size:12.5px;color:var(--muted);white-space:nowrap;display:flex;align-items:center;gap:4px"><input type="checkbox" id="zipPwdRemember"> 记住密码</label>
@@ -269,6 +269,57 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     <div class="pay-guide">
       微信未对第三方开放「发起群收款」接口，最后一步需手动完成（约10秒）：<br>
       群聊 → ＋ → 群收款 → 「按人均摊」填入上面的总金额与人数 → 把「收款备注」粘贴进「收款说明」→ 发送。明细较长时可另发「群明细」消息。
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="mapperOverlay">
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="mapperTitle">
+    <div class="head-row">
+      <h3 id="mapperTitle">银行 / 其他账单 · 列映射导入</h3>
+      <button class="close" id="btnCloseMapper" type="button" aria-label="关闭">✕</button>
+    </div>
+    <p class="hint">文件里没有微信账单表头（比如是银行 App 导出的账单）。选择各列的对应关系即可导入；勾选「保存为模板」后，下次同一家银行的账单会自动套用映射。</p>
+    <div class="grid2">
+      <label for="mapperTpl">已保存模板</label>
+      <select id="mapperTpl"><option value="">不使用（手动映射）</option></select>
+      <label for="mapperHeaderRow">表头所在行</label>
+      <input type="number" id="mapperHeaderRow" min="1" value="1" inputmode="numeric">
+      <label for="colTime">交易时间（必选）</label>
+      <select id="colTime"></select>
+      <label for="colTime2">时间第二列（可选）</label>
+      <select id="colTime2"></select>
+      <label for="colAmount">金额（必选）</label>
+      <select id="colAmount"></select>
+      <label for="colAmount2">第二金额列（可选）</label>
+      <select id="colAmount2"></select>
+      <label for="colDir">方向列（可选）</label>
+      <select id="colDir"></select>
+      <label for="dirMode">方向判定</label>
+      <select id="dirMode">
+        <option value="col">按方向列文字（收/贷=收入，支/借=支出）</option>
+        <option value="plus-income">按金额正负（正数=收入）</option>
+        <option value="plus-expense">按金额正负（正数=支出）</option>
+        <option value="expense-all">全部算作支出</option>
+      </select>
+      <label for="colWho">对方 / 摘要（可选）</label>
+      <select id="colWho"></select>
+      <label for="colWhat">商品 / 用途（可选）</label>
+      <select id="colWhat"></select>
+      <label for="colNote">备注列（可选）</label>
+      <select id="colNote"></select>
+      <label for="colId">单号列（可选，去重用）</label>
+      <select id="colId"></select>
+    </div>
+    <p class="ph-help">银行把收入/支出金额分成两列时：金额列选「支出金额」，第二金额列选「收入金额」（此时自动按列判定方向）。</p>
+    <div class="preview" id="mapperPreview">选择列后这里会显示解析预览。</div>
+    <div class="row" style="margin-top:10px">
+      <label style="font-size:12.5px;color:var(--muted);display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" id="mapperSaveTpl" checked> 保存为模板</label>
+      <input type="text" id="mapperTplName" placeholder="模板名，如：中国银行储蓄卡" style="flex:1;min-width:160px">
+    </div>
+    <div class="actions">
+      <button class="primary" id="btnMapperImport" type="button">导入</button>
+      <button id="btnMapperCancel" type="button">取消</button>
     </div>
   </div>
 </div>
@@ -360,11 +411,17 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
   }
 
   var RE_DT = /^(\d{4})[\/\-年](\d{1,2})[\/\-月](\d{1,2})日?(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/;
+  var RE_COMPACT_DT = /^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2})(\d{2})?)?$/;
   function pad2(n) { return (n < 10 ? '0' : '') + n; }
 
   function parseDateTime(s) {
-    var m = RE_DT.exec((s || '').trim());
-    if (!m) return null;
+    var str = (s || '').trim();
+    var m = RE_DT.exec(str);
+    if (!m) {
+      // 紧凑格式：20260906 / 202609061230 / 20260906123015（银行流水常见），或「2026年9月6日」取数字
+      m = RE_COMPACT_DT.exec(str.replace(/\D/g, ''));
+      if (!m) return null;
+    }
     var y = +m[1], mo = +m[2], d = +m[3], h = +(m[4] || 0), mi = +(m[5] || 0), sec = +(m[6] || 0);
     var date = new Date(y, mo - 1, d, h, mi, sec);
     if (isNaN(date.getTime()) || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
@@ -381,6 +438,100 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     if (t === '收入') return { dir: 'income', label: '收入' };
     if (t === '支出') return { dir: 'expense', label: '支出' };
     return { dir: 'neutral', label: '中性' };
+  }
+
+  /* 银行流水方向文字：收/贷/转入=收入，支/借/转出=支出 */
+  function mapDirText(raw) {
+    var t = String(raw || '');
+    if (/收|贷|入账|转入/.test(t)) return 'income';
+    if (/支|借|出|转出/.test(t)) return 'expense';
+    return 'neutral';
+  }
+
+  function dirLabelOf(dir) {
+    return dir === 'income' ? '收入' : (dir === 'neutral' ? '中性' : '支出');
+  }
+
+  /* djb2：银行流水无单号时生成稳定去重 ID */
+  function strHash(s) {
+    var h = 5381;
+    for (var i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0;
+    return h.toString(36);
+  }
+
+  /* 猜测表头所在行（0 基）：同时含 时间/日期 与 金额/发生额/余额 的前 30 行 */
+  function guessHeaderRow(rows) {
+    for (var i = 0; i < Math.min(rows.length, 30); i++) {
+      var row = rows[i] || [];
+      var hasTime = row.some(function (c) { return /时间|日期/.test(c || ''); });
+      var hasAmt = row.some(function (c) { return /金额|发生额|余额/.test(c || ''); });
+      if (hasTime && hasAmt) return i;
+    }
+    return 0;
+  }
+
+  /*
+   * 通用（银行等）账单解析：rows + 列映射 → 账单。
+   * m = { headerRow(0基), dirMode: 'col'|'plus-income'|'plus-expense'|'expense-all',
+   *       cols: { time, amount, amount2, dir, who, what, note, id }（列下标字符串，'' 表示未映射） }
+   * amount2 用于银行把 收入金额/支出金额 分成两列的情况（amount=支出列，amount2=收入列）。
+   */
+  function billsFromMappedRows(rowsIn, m) {
+    var rows = rowsIn.map(function (r) {
+      return Array.isArray(r) ? r.map(function (c) { return c == null ? '' : String(c); }) : [];
+    });
+    var cols = m.cols || {};
+    function colOf(key) {
+      var v = cols[key];
+      return (v === '' || v == null) ? null : +v;
+    }
+    var cTime = colOf('time'), cAmount = colOf('amount'), cAmount2 = colOf('amount2');
+    var cTime2 = colOf('time2');
+    if (cTime == null || isNaN(cTime)) throw new Error('请先选择“交易时间”对应的列');
+    if (cAmount == null || isNaN(cAmount)) throw new Error('请先选择“金额”对应的列');
+
+    var bills = [], skipped = [];
+    for (var r = m.headerRow + 1; r < rows.length; r++) {
+      var row = rows[r];
+      if (!row || row.every(function (c) { return !c; })) continue;
+      var timeRaw = row[cTime] + (cTime2 != null && !isNaN(cTime2) ? ' ' + row[cTime2] : '');
+      var dt = parseDateTime(timeRaw);
+      if (!dt) { skipped.push({ row: r + 1, reason: '时间无法解析：' + timeRaw }); continue; }
+
+      var amount, dir;
+      if (cAmount2 != null && !isNaN(cAmount2)) {
+        var outV = parseAmount(row[cAmount]);
+        var inV = parseAmount(row[cAmount2]);
+        if (outV == null && inV == null) { skipped.push({ row: r + 1, reason: '支出/收入金额都为空' }); continue; }
+        if (outV) { dir = 'expense'; amount = outV; } else { dir = 'income'; amount = inV; }
+      } else {
+        amount = parseAmount(row[cAmount]);
+        if (amount == null) { skipped.push({ row: r + 1, reason: '金额无法解析：' + row[cAmount] }); continue; }
+        if (m.dirMode === 'plus-income') dir = amount > 0 ? 'income' : 'expense';
+        else if (m.dirMode === 'plus-expense') dir = amount > 0 ? 'expense' : 'income';
+        else if (m.dirMode === 'expense-all') dir = 'expense';
+        else dir = mapDirText(cols.dir == null || cols.dir === '' ? '' : row[+cols.dir]);
+      }
+
+      function cell(key) {
+        var c = colOf(key);
+        return (c == null || isNaN(c)) ? '' : (row[c] || '');
+      }
+      var who = cell('who'), what = cell('what'), note = cell('note');
+      var idRaw = cell('id');
+      var txnId = idRaw ? String(idRaw).trim()
+        : ('bank-' + strHash([dt.datetime, Math.abs(amount).toFixed(2), who, what].join('|')));
+
+      bills.push({
+        txnId: txnId,
+        ts: dt.ts, dateStr: dt.dateStr, timeStr: dt.timeStr, datetime: dt.datetime,
+        kind: '银行流水', counterparty: who, product: what,
+        dir: dir, dirLabel: dirLabelOf(dir),
+        amount: Math.abs(amount), payMethod: '银行账户', status: '',
+        mchId: '', note: note, source: 'bank'
+      });
+    }
+    return { bills: bills, skipped: skipped, headerRow: m.headerRow + 1 };
   }
 
   /* 从「二维字符串数组」构建账单（CSV 与 XLSX 两条导入路径共用） */
@@ -510,6 +661,10 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     parseWeChatBillText: parseWeChatBillText,
     parseWeChatBill: parseWeChatBill,
     billsFromRows: billsFromRows,
+    billsFromMappedRows: billsFromMappedRows,
+    guessHeaderRow: guessHeaderRow,
+    mapDirText: mapDirText,
+    strHash: strHash,
     sumAmounts: sumAmounts,
     buildRemark: buildRemark,
     buildDetailMessage: buildDetailMessage,
@@ -1068,14 +1223,41 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
       .catch(function (e) { failImport(e && e.message ? e.message : '文件读取失败'); });
   }
 
-  /* 按文件内容自动分流：zip / json 备份 / csv */
+  /* 多文件批量：逐个解析（自动去重），识别不了的进入列映射 */
+  function handleFiles(fileList) {
+    var files = Array.prototype.slice.call(fileList);
+    if (!files.length) return;
+    if (files.length === 1) { handleFile(files[0]); return; }
+    var totals = { added: 0, dup: 0, ok: 0, failed: 0, mapper: 0 }, firstErr = '';
+    var chain = Promise.resolve();
+    files.forEach(function (file) {
+      chain = chain.then(function () {
+        return file.arrayBuffer()
+          .then(function (buf) { return handleBytes(buf, file.name); })
+          .then(function (res) {
+            if (res && res.needMapper) { totals.mapper++; return; }
+            if (res && typeof res.added === 'number') { totals.added += res.added; totals.dup += res.dup; totals.ok++; }
+          })
+          .catch(function (e) { totals.failed++; if (!firstErr) firstErr = (e && e.message) || '未知错误'; });
+      });
+    });
+    chain.then(function () {
+      $('importResult').innerHTML =
+        '<span class="ok">✓ 批量导入 ' + files.length + ' 个文件：新增 ' + totals.added + ' 笔，跳过重复 ' + totals.dup + ' 笔</span>' +
+        (totals.mapper ? '<span class="warn">，' + totals.mapper + ' 个待手动列映射</span>' : '') +
+        (totals.failed ? '<span class="warn">，' + totals.failed + ' 个失败（' + esc(firstErr) + '）</span>' : '');
+      toast('批量导入完成');
+    });
+  }
+
+  /* 按文件内容自动分流：zip(微信zip / 内含xlsx) / json 备份 / csv 文本 */
   function handleBytes(buf, fileName) {
     var u8 = new Uint8Array(buf);
-    if (u8.length > 4 && u8[0] === 0x50 && u8[1] === 0x4b) return handleZip(u8, fileName);
+    if (u8.length > 4 && u8[0] === 0x50 && u8[1] === 0x4b) return handleZipBytes(u8, fileName);
     var headText = '';
     try { headText = new TextDecoder('utf-8').decode(u8.subarray(0, 1)).trim(); } catch (e) { /* ignore */ }
     if (headText === '{' || headText === '[') { restoreBackup(u8); return Promise.resolve(); }
-    return importCsvBytes(u8, fileName);
+    return handleCsvBytes(u8, fileName);
   }
 
   function importParsed(out, label, encoding) {
@@ -1087,14 +1269,18 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
         '<span class="ok">✓ 从 ' + esc(label) + ' 导入：新增 ' + res.added + ' 笔，跳过重复 ' + res.dup + ' 笔</span>' +
         (encoding ? '（' + esc(encoding) + '）' : '') + extra;
       toast(res.added > 0 ? '已导入 ' + res.added + ' 笔账单' : '账单均与已有记录重复');
+      return res;
     });
   }
 
-  function importCsvBytes(bytes, fileName) {
+  /* CSV/文本：微信格式 → 直接导入；否则进入列映射（银行等） */
+  function handleCsvBytes(bytes, fileName) {
+    var dec = C.decodeBytes(bytes);
+    var rows = C.parseCSV(dec.text);
     var out;
-    try { out = C.parseWeChatBill(bytes); }
-    catch (e) { failImport(e && e.message ? e.message : 'CSV 解析失败'); return Promise.resolve(); }
-    return importParsed(out, fileName, out.encoding);
+    try { out = C.billsFromRows(rows); }
+    catch (e) { openMapper(rows, fileName, dec.encoding); return Promise.resolve({ needMapper: true }); }
+    return importParsed(out, fileName, dec.encoding);
   }
 
   /* 微信发来的 zip：浏览器内直接解压（ZipCrypto），无需手动解压 */
@@ -1104,34 +1290,46 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
     try { return localStorage.getItem('wxbc_zippwd') || ''; } catch (e) { return ''; }
   }
 
-  function handleZip(u8, fileName) {
+  function rememberZipPwd(pwd) {
+    try { if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd); } catch (e) { /* 忽略 */ }
+  }
+
+  function handleZipBytes(u8, fileName) {
     var pwd = getZipPassword();
     return ZipReader.readZip(u8, pwd || undefined).then(function (zip) {
-      // xlsx 本质上也是 zip 包，先按内容识别
+      // xlsx 本质上也是 zip 包：整个文件是 xlsx，或压缩包里嵌着 xlsx（中国银行等银行导出的形态）
       var isXlsx = zip.entries.some(function (e) { return /^xl\/workbook\.xml$/i.test(e.name); });
-      if (isXlsx) {
-        try {
-          if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd);
-        } catch (e) { /* 忽略 */ }
-        var out = C.billsFromRows(XlsxReader.readXlsxEntries(zip.entries).rows);
-        return importParsed(out, fileName + '（Excel）', 'xlsx');
+      if (isXlsx) { rememberZipPwd(pwd); return handleXlsxEntries(zip.entries, fileName); }
+      var xl = zip.entries.filter(function (e) { return /\.xlsx$/i.test(e.name) && e.data && e.data.length; })
+        .sort(function (a, b) { return b.data.length - a.data.length; })[0];
+      if (xl) {
+        rememberZipPwd(pwd);
+        return ZipReader.readZip(xl.data).then(function (inner) { return handleXlsxEntries(inner.entries, fileName + ' 中的 ' + xl.name); });
       }
       var csvs = zip.entries.filter(function (e) { return /\.csv$/i.test(e.name) && e.data && e.data.length; });
-      if (!csvs.length) throw new Error('压缩包里既没有微信账单 CSV，也不是有效的 xlsx');
+      if (!csvs.length) throw new Error('压缩包里没有找到账单 CSV / Excel 文件，也不是有效的 xlsx');
       var pick = csvs.sort(function (a, b) { return b.data.length - a.data.length; })[0];
-      try {
-        if ($('zipPwdRemember').checked && pwd) localStorage.setItem('wxbc_zippwd', pwd);
-      } catch (e) { /* 忽略 */ }
-      return importCsvBytes(pick.data, fileName + ' 中的 ' + pick.name);
+      rememberZipPwd(pwd);
+      return handleCsvBytes(pick.data, fileName + ' 中的 ' + pick.name);
     }).catch(function (e) {
       if (e && (e.code === 'need-password' || e.code === 'bad-password')) {
-        $('importResult').innerHTML = '<span class="warn">✗ ' + esc(e.message) + ' 解压密码在微信「下载账单」页面会直接展示。</span>';
+        $('importResult').innerHTML = '<span class="warn">✗ ' + esc(e.message) + ' 解压密码在导出页面（或银行 App 的导出历史）里查看。</span>';
         $('zipPwd').focus();
         toast(e.code === 'bad-password' ? '密码不对，请检查' : '请填写解压密码');
         return;
       }
       failImport(e && e.message ? e.message : 'zip 解压失败');
     });
+  }
+
+  function handleXlsxEntries(entries, fileName) {
+    var parsed2;
+    try { parsed2 = XlsxReader.readXlsxEntries(entries); }
+    catch (e) { failImport(e && e.message ? e.message : 'xlsx 解析失败'); return Promise.resolve(); }
+    var out;
+    try { out = C.billsFromRows(parsed2.rows); }
+    catch (e) { openMapper(parsed2.rows, fileName, 'xlsx'); return Promise.resolve({ needMapper: true }); }
+    return importParsed(out, fileName, 'xlsx');
   }
 
   function restoreBackup(u8) {
@@ -1233,6 +1431,113 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
 
   function closeModal() { $('overlay').classList.remove('show'); }
 
+  /* ---------------- 银行 / 其他账单：列映射导入 ---------------- */
+  var BANK_TPL_KEY = 'wxbc_bank_tpls';
+  var MAPPER_SELECTS = ['colTime', 'colTime2', 'colAmount', 'colAmount2', 'colDir', 'colWho', 'colWhat', 'colNote', 'colId'];
+  var mapperCtx = null;
+
+  function loadBankTpls() {
+    try { return JSON.parse(localStorage.getItem(BANK_TPL_KEY) || '[]') || []; }
+    catch (e) { return []; }
+  }
+  function saveBankTpls(list) {
+    try { localStorage.setItem(BANK_TPL_KEY, JSON.stringify(list)); } catch (e) { /* 忽略 */ }
+  }
+
+  function fillColSelects(header) {
+    var opts = ['<option value="">（不使用）</option>'];
+    header.forEach(function (h, i) {
+      opts.push('<option value="' + i + '">' + esc(h || ('第' + (i + 1) + '列')) + '</option>');
+    });
+    MAPPER_SELECTS.forEach(function (id) { $(id).innerHTML = opts.join(''); });
+  }
+  function setColByRe(id, header, re) {
+    var el = $(id);
+    for (var i = 0; i < header.length; i++) {
+      if (header[i] && re.test(header[i])) { el.value = String(i); return; }
+    }
+  }
+  function readMapperMapping() {
+    return {
+      headerRow: Math.max(1, parseInt($('mapperHeaderRow').value, 10) || 1) - 1,
+      dirMode: $('dirMode').value,
+      cols: {
+        time: $('colTime').value, time2: $('colTime2').value, amount: $('colAmount').value, amount2: $('colAmount2').value,
+        dir: $('colDir').value, who: $('colWho').value, what: $('colWhat').value,
+        note: $('colNote').value, id: $('colId').value
+      }
+    };
+  }
+  function updateMapperPreview() {
+    if (!mapperCtx) return;
+    try {
+      var out = C.billsFromMappedRows(mapperCtx.rows, readMapperMapping());
+      var lines = out.bills.slice(0, 3).map(function (b) {
+        return b.dateStr + ' ' + b.timeStr + ' ' + (b.counterparty || b.product || '（无对方信息）') + ' ' +
+          (b.dir === 'income' ? '+' : b.dir === 'neutral' ? '' : '−') + b.amount.toFixed(2);
+      });
+      $('mapperPreview').textContent =
+        '共识别 ' + out.bills.length + ' 笔，预览前 ' + Math.min(3, out.bills.length) + ' 笔：\n' + lines.join('\n') +
+        (out.skipped.length ? '\n（另有 ' + out.skipped.length + ' 行无法解析将跳过）' : '');
+      $('mapperPreview').dataset.ok = out.bills.length ? '1' : '';
+    } catch (e) {
+      $('mapperPreview').textContent = '× ' + e.message;
+      $('mapperPreview').dataset.ok = '';
+    }
+  }
+  function applyBankTpl(t) {
+    $('mapperHeaderRow').value = String(t.headerRow + 1);
+    Object.keys(t.cols).forEach(function (k) {
+      var el = $('col' + k.charAt(0).toUpperCase() + k.slice(1));
+      if (el) el.value = t.cols[k];
+    });
+    $('dirMode').value = t.dirMode;
+    $('mapperSaveTpl').checked = true;
+    $('mapperTplName').value = t.name;
+    updateMapperPreview();
+  }
+  function refreshMapperTplSelect(selectedName) {
+    var tpls = loadBankTpls();
+    $('mapperTpl').innerHTML = '<option value="">不使用（手动映射）</option>' +
+      tpls.map(function (t, i) { return '<option value="' + i + '">' + esc(t.name) + '</option>'; }).join('');
+    if (selectedName) {
+      tpls.forEach(function (t, i) { if (t.name === selectedName) $('mapperTpl').value = String(i); });
+    }
+  }
+  function openMapper(rows, fileName, encoding) {
+    mapperCtx = { rows: rows, fileName: fileName || '', encoding: encoding || '' };
+    var headerRow = C.guessHeaderRow(rows);
+    $('mapperHeaderRow').value = String(headerRow + 1);
+    var header = rows[headerRow] || [];
+    fillColSelects(header);
+    setColByRe('colTime', header, /日期|时间/);
+    setColByRe('colTime2', header, /时间/);
+    if ($('colTime2').value === $('colTime').value) $('colTime2').value = '';
+    setColByRe('colAmount', header, /支出金额|金额|发生额/);
+    setColByRe('colAmount2', header, /收入金额/);
+    setColByRe('colDir', header, /收支|借贷|方向|标志/);
+    setColByRe('colWho', header, /对方|摘要|商户|名称/);
+    setColByRe('colWhat', header, /商品|用途|附言|备注/);
+    setColByRe('colNote', header, /备注|附言/);
+    setColByRe('colId', header, /单号|流水号|凭证/);
+    refreshMapperTplSelect();
+    var tpls = loadBankTpls();
+    var headerKey = header.join('\u0001');
+    var matched = null;
+    tpls.forEach(function (t) { if (!matched && t.headerKey === headerKey) matched = t; });
+    if (matched) {
+      $('mapperTpl').value = String(tpls.indexOf(matched));
+      applyBankTpl(matched);
+    } else {
+      $('dirMode').value = ($('colDir').value !== '') ? 'col' : 'plus-expense';
+      $('mapperSaveTpl').checked = true;
+      $('mapperTplName').value = (fileName || '').replace(/\.[^.]+$/, '') || '我的银行模板';
+      updateMapperPreview();
+    }
+    $('mapperOverlay').classList.add('show');
+  }
+  function closeMapper() { $('mapperOverlay').classList.remove('show'); mapperCtx = null; }
+
   /* ---------------- 事件绑定 ---------------- */
   function bind() {
     var drop = $('dropZone'), fileInput = $('fileInput');
@@ -1245,11 +1550,10 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
       drop.addEventListener(ev, function (e) { e.preventDefault(); drop.classList.remove('on'); });
     });
     drop.addEventListener('drop', function (e) {
-      var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-      if (f) handleFile(f);
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
     });
     fileInput.addEventListener('change', function () {
-      if (fileInput.files && fileInput.files[0]) { handleFile(fileInput.files[0]); fileInput.value = ''; }
+      if (fileInput.files && fileInput.files.length) { handleFiles(fileInput.files); fileInput.value = ''; }
     });
 
     $('btnDemo').addEventListener('click', function () {
@@ -1349,6 +1653,46 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
       copyText('总金额：¥' + ($('mkPreview').dataset.total || '0.00') + '\n备注：\n' + r, '金额与备注已复制');
     });
 
+    // 列映射导入
+    ['mapperHeaderRow', 'colTime', 'colAmount', 'colAmount2', 'colDir', 'colWho', 'colWhat', 'colNote', 'colId', 'dirMode'].forEach(function (id) {
+      $(id).addEventListener('change', updateMapperPreview);
+      if (id === 'mapperHeaderRow') $(id).addEventListener('input', updateMapperPreview);
+    });
+    $('mapperTpl').addEventListener('change', function () {
+      var idx = $('mapperTpl').value;
+      if (idx === '') { updateMapperPreview(); return; }
+      var t = loadBankTpls()[+idx];
+      if (t) applyBankTpl(t);
+    });
+    $('btnMapperImport').addEventListener('click', function () {
+      if (!mapperCtx) return;
+      var m = readMapperMapping();
+      if (m.cols.time === '') return toast('请选择“交易时间”对应的列');
+      if (m.cols.amount === '') return toast('请选择“金额”对应的列');
+      var out;
+      try { out = C.billsFromMappedRows(mapperCtx.rows, m); }
+      catch (e) { return toast(e.message); }
+      if (!out.bills.length) return toast('没有解析出账单，请检查列映射与表头行');
+      if ($('mapperSaveTpl').checked) {
+        var name = ($('mapperTplName').value || mapperCtx.fileName || '银行模板').trim();
+        var header = mapperCtx.rows[m.headerRow] || [];
+        var tpls = loadBankTpls().filter(function (t) { return t.name !== name; });
+        tpls.push({ name: name, headerKey: header.join('\u0001'), headerRow: m.headerRow, dirMode: m.dirMode, cols: m.cols });
+        saveBankTpls(tpls);
+      }
+      var label = mapperCtx.fileName || '银行账单';
+      addBills(out.bills).then(function (res) {
+        $('importResult').innerHTML =
+          '<span class="ok">✓ 从 ' + esc(label) + ' 导入：新增 ' + res.added + ' 笔，跳过重复 ' + res.dup + ' 笔</span>' +
+          (out.skipped.length ? '<span class="warn">，另有 ' + out.skipped.length + ' 行无法解析</span>' : '') +
+          ($('mapperSaveTpl').checked ? '（模板：' + esc($('mapperTplName').value) + '）' : '');
+        toast('已导入 ' + res.added + ' 笔');
+      });
+      closeMapper();
+    });
+    $('btnMapperCancel').addEventListener('click', closeMapper);
+    $('btnCloseMapper').addEventListener('click', closeMapper);
+
     // 数据管理
     $('btnExport').addEventListener('click', function () {
       var data = { app: 'wxbc', version: 1, exportedAt: new Date().toISOString(), bills: state.bills };
@@ -1380,7 +1724,7 @@ textarea#mkTplText { min-height: 84px; resize: vertical; font-size: 13px; }
       if (savedPwd) { $('zipPwd').value = savedPwd; $('zipPwdRemember').checked = true; }
     } catch (e) { /* 忽略 */ }
     // 供自动化测试使用的内部入口（不参与正常流程）
-    window.__wxbcDebug = { handleBytes: handleBytes };
+    window.__wxbcDebug = { handleBytes: handleBytes, handleFiles: handleFiles };
     idbGetAll().then(function (rows) {
       state.bills = rows || [];
       sortBills();
