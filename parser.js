@@ -106,11 +106,14 @@
     return { dir: 'neutral', label: '中性' };
   }
 
-  /* 解析账单文本。返回 { bills, skipped:[{row,reason}], headerRow } */
-  function parseWeChatBillText(text) {
-    var rows = parseCSV(text);
+  /* 从「二维字符串数组」构建账单（CSV 与 XLSX 两条导入路径共用） */
+  function billsFromRows(rowsIn) {
+    // 稀疏行补齐，避免 map/loc 遇到空洞
+    var rows = rowsIn.map(function (r) {
+      return Array.isArray(r) ? r.map(function (c) { return c == null ? '' : c; }) : [];
+    });
     var hi = locateHeader(rows);
-    if (hi < 0) throw new Error('未找到表头行（需要包含“交易时间”和“金额”）。请导入微信支付导出的账单明细 CSV。');
+    if (hi < 0) throw new Error('未找到表头行（需要包含“交易时间”和“金额”）。请导入微信支付导出的账单明细。');
     var header = rows[hi].map(function (s) { return (s || '').trim(); });
     var col = {};
     Object.keys(FIELD_ALIASES).forEach(function (key) {
@@ -146,6 +149,11 @@
       });
     }
     return { bills: bills, skipped: skipped, headerRow: hi + 1 };
+  }
+
+  /* 解析账单 CSV 文本 */
+  function parseWeChatBillText(text) {
+    return billsFromRows(parseCSV(text));
   }
 
   function parseWeChatBill(buffer) {
@@ -228,6 +236,7 @@
     parseCSV: parseCSV,
     parseWeChatBillText: parseWeChatBillText,
     parseWeChatBill: parseWeChatBill,
+    billsFromRows: billsFromRows,
     sumAmounts: sumAmounts,
     buildRemark: buildRemark,
     buildDetailMessage: buildDetailMessage,
